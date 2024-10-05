@@ -1,0 +1,174 @@
+services:
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: 
+      - --config=/etc/otel-collector-config.yaml
+    volumes:
+      - ./script/otel-collector/config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+      - "8889:8889"
+      - "8888:8888"
+  
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    command: 
+      - --config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./script/loki/config.yaml:/etc/loki/loki-config.yaml
+    depends_on:
+      - otel-collector
+  
+  tempo:
+    image: grafana/tempo:latest
+    command:
+      - --config.file=/etc/tempo.yaml
+    volumes:
+      - ./script/tempo/config.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"
+  
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./script/prometheus/config.yaml:/etc/prometheus/prometheus.yml
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      # - grafana-storage:/var/lib/grafana
+      - ./script/grafana/datasources/:/etc/grafana/provisioning/datasources/
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - otel-collector
+      - loki
+      - tempo
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - 22181:2181
+  
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - 29092:29092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9090
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    depends_on:
+      - kafka
+    ports:
+      - 8090:8080
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9090
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+  #
+  # docker exec -it mysql /bin/bash
+  # mysql -ukafkauser -pkafkauserpassword observabiliy_db
+  # SHOW TABLES;
+  # select * from message_entity;
+  #
+  mysql:
+    image: mysql:8.4
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: observabiliy_db
+      MYSQL_USER: kafkauser
+      MYSQL_PASSWORD: kafkauserpassword
+    ports:
+      - "3306:3306"
+  
+  producer-service:
+    hostname: producer
+    build:
+      context: ./observability-producer-service
+      dockerfile: Dockerfile
+    environment:
+      APP_OUTBOUND_REST_CLIENTS_BRIDGE_BASE_URL: http://bridge:8084
+      APP_KAFKA_BOOTSTRAP: PLAINTEXT://kafka:9090
+      APP_KAFKA_TOPIC: topic-observability
+      OTEL_SERVICE_NAME: producer-service
+      OTEL_RESOURCE_ATTRIBUTES: service.name=producer-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+      - otel-collector
+
+  consumer-service:
+    hostname: consumer
+    build:
+      context: ./observability-consumer-service
+      dockerfile: Dockerfile
+    environment:
+      APP_KAFKA_BOOTSTRAP: PLAINTEXT://kafka:9090
+      APP_KAFKA_TOPIC: topic-observability
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/observabiliy_db
+      SPRING_DATASOURCE_USERNAME: kafkauser
+      SPRING_DATASOURCE_PASSWORD: kafkauserpassword
+      OTEL_SERVICE_NAME: consumer-service
+      OTEL_RESOURCE_ATTRIBUTES: service.name=consumer-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+    ports:
+      - "8082:8082"
+    depends_on:
+      - mysql
+      - kafka
+      - otel-collector
+
+  bridge-service:
+    hostname: bridge
+    build:
+      context: ./observability-bridge-service
+      dockerfile: Dockerfile
+    environment:
+      APP_OUTBOUND_REST_CLIENTS_CONSUMER_BASE_URL: http://consumer:8082
+      OTEL_SERVICE_NAME: bridge-service
+      OTEL_RESOURCE_ATTRIBUTES: service.name=bridge-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+    ports:
+      - "8084:8084"
+    depends_on:
+      - otel-collector

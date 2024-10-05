@@ -1,0 +1,9 @@
+[submodule "observability-bridge-service"]
+	path = observability-bridge-service
+	url = https://github.com/saidRaiss/observability-bridge-service.git
+[submodule "observability-consumer-service"]
+	path = observability-consumer-service
+	url = https://github.com/saidRaiss/observability-consumer-service.git
+[submodule "observability-producer-service"]
+	path = observability-producer-service
+	url = https://github.com/saidRaiss/observability-producer-service.git

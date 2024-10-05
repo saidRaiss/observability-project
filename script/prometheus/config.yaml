@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 10s  # Default scrape interval for all jobs
+  evaluation_interval: 15s  # Interval for rule evaluations
+
+scrape_configs:
+
+  - job_name: 'otel-collector'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8888']  # Endpoint for the collector's own metrics
+
+  - job_name: 'microservices'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['otel-collector:8889']  # Endpoint for metrics collected from other applications
+  
+  - job_name: 'loki'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['loki:3100']  # Loki container or service URL
+        labels:
+          service: loki
+  
+  - job_name: 'tempo'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['tempo:3200']  # Tempo container or service URL
+        labels:
+          service: tempo

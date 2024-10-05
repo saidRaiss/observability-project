@@ -1,0 +1,18 @@
+meta {
+  name: Publish message
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:8080/producer/publish
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "key": "key-2",
+    "content": "SoCraTes Morocco 24 INNOVX"
+  }
+}

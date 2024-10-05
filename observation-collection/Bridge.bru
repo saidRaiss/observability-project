@@ -1,0 +1,19 @@
+meta {
+  name: Bridge
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8084/message?id=1
+  body: none
+  auth: none
+}
+
+params:query {
+  id: 1
+}
+
+vars:pre-request {
+  ~id: 1
+}
